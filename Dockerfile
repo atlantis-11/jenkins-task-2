@@ -1,5 +1,7 @@
 FROM python:3.10-slim AS base
 
+EXPOSE 8000
+
 COPY requirements.txt .
 
 RUN pip install -r requirements.txt
@@ -18,4 +20,4 @@ RUN python -m pytest tests/
 
 FROM base
 
-CMD ["python", "-m", "weather_app"]
+CMD ["gunicorn", "-b", "0.0.0.0", "weather_app:app"]
