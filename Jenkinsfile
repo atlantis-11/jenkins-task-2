@@ -1,49 +1,39 @@
-@Library('my-shared-lib') _
-
 pipeline {
     agent any
+    
+    environment {
+        IMAGE_TAG = "atlantisj11/weather_app:${BUILD_ID}"
+    }
 
     stages {
-        stage('Install dependencies') {
+        stage("Test") {
             steps {
-                sh 'python3 -m venv .venv'
-                sh '''
-                . .venv/bin/activate
-                pip install .
-                pip install pytest
-                '''
+                script {
+                    docker.build("${IMAGE_TAG}-tests", '--target=tests .')
+                }
             }
         }
-        stage('Parallel Tests') {
-            parallel {
-                stage('Unit Tests') {
-                    steps {
-                        runTests 'tests/unit'
-                    }
-                }
-                stage('Integration Tests') {
-                    steps {
-                        runTests 'tests/integration'
+        stage("Build") {
+            steps {
+                script {
+                    def image = docker.build(IMAGE_TAG)
+                    
+                    docker.withRegistry('', 'atlantisj11-dockerhub') {
+                        image.push()
                     }
                 }
             }
         }
-    }
-    
-    post {
-        always {
-            withCredentials([string(credentialsId: 'discord_secret', variable: 'discord_webhook')]) {
-                discordSend(
-                    title: env.JOB_NAME,
-                    link: env.BUILD_URL,
-                    description: "${env.JOB_NAME} build result: ${currentBuild.currentResult}",
-                    result: currentBuild.currentResult,
-                    webhookURL: discord_webhook
-                )
+        stage('Deploy') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig-9', variable: 'KUBECONFIG')]) {
+                    sh """
+                    cd manifests
+                    kustomize edit set image weather_app=${IMAGE_TAG}
+                    kubectl apply -k .
+                    """
+                }
             }
-        }
-        cleanup {
-            deleteDir()
         }
     }
 }
